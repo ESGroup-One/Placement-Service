@@ -20,11 +20,7 @@ public class Application {
 
     @Id
     private String id;
-
-    @DBRef
     private User student;
-
-    @DBRef
     private Course course;
 
     private String applicationType; // "higher-education", "self-financed"

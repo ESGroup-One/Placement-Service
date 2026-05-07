@@ -56,14 +56,23 @@ public class ApplicationService {
     }
 
     public Map<String, Object> checkEligibility(String token, String courseId) {
+        // 1. Authentication & Role Check
         User student = getAuthenticatedUser(token);
         if (student.getRole() != User.Role.student) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only students can check eligibility.");
         }
 
+        // 2. Resource Retrieval
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Course not found."));
 
+        // 3. Deadline Check
+        if (course.getApplication_dateline() != null && LocalDateTime.now().isAfter(course.getApplication_dateline())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The application deadline for this course has passed.");
+        }
+
+        // 4. Duplicate Application Check
         if (applicationRepository.findByStudentIdAndCourseId(student.getId(), courseId).isPresent()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You have already applied for this course.");
         }
@@ -73,8 +82,9 @@ public class ApplicationService {
 
         boolean isEligible = true;
         Map<String, Object> details = new HashMap<>();
+        List<String> failureMessages = new ArrayList<>();
 
-        // 1. Calculate Overall Aggregate
+        // A. Calculate Overall Aggregate
         double totalMarks = 0;
         int count = 0;
         List<Map.Entry<String, Double>> allSubjects = new ArrayList<>();
@@ -92,7 +102,7 @@ public class ApplicationService {
         }
         double aggregate = count > 0 ? totalMarks / count : 0;
 
-        // 2. Fixed Subject Check
+        // B. Fixed Subject Check
         Set<String> usedForEligibility = new HashSet<>();
         for (String subject : criteria.keySet()) {
             String lowerSub = subject.toLowerCase();
@@ -103,8 +113,13 @@ public class ApplicationService {
             Double studentMark = getStudentMark(studentMarks, subject);
 
             boolean met = (studentMark != null && studentMark >= reqMark);
-            if (!met)
+            if (!met) {
                 isEligible = false;
+                double actualMark = (studentMark != null) ? studentMark : 0;
+                failureMessages.add(String.format(
+                        "You have not passed the minimum marks required for %s, which is %.0f (Your mark is %.0f).",
+                        subject, reqMark, actualMark));
+            }
 
             Map<String, Object> subjectStat = new HashMap<>();
             subjectStat.put("required", reqMark);
@@ -116,7 +131,7 @@ public class ApplicationService {
                 markAsUsed(usedForEligibility, subject);
         }
 
-        // 3. Best Subject Check
+        // C. Best Subject Check
         List<Map.Entry<String, Double>> remaining = allSubjects.stream()
                 .filter(e -> !usedForEligibility.contains(e.getKey().toLowerCase()))
                 .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
@@ -129,11 +144,15 @@ public class ApplicationService {
 
             if (remaining.size() < bestSubCounter) {
                 isEligible = false;
+                failureMessages.add("You do not have enough subjects to fulfill the '" + key + "' requirement.");
             } else {
                 Map.Entry<String, Double> best = remaining.get(bestSubCounter - 1);
                 boolean met = best.getValue() >= reqMark;
-                if (!met)
+                if (!met) {
                     isEligible = false;
+                    failureMessages.add(String.format("Your %s (%s) of %.0f is below the required %.0f.",
+                            key, best.getKey(), best.getValue(), reqMark));
+                }
 
                 Map<String, Object> stat = new HashMap<>();
                 stat.put("required", reqMark);
@@ -145,16 +164,20 @@ public class ApplicationService {
             bestSubCounter++;
         }
 
-        // 4. Aggregate Check
+        // D. Aggregate Check
         if (criteria.containsKey("Overall_Aggregate")) {
             double reqAgg = Double.parseDouble(criteria.get("Overall_Aggregate").toString());
-            boolean met = aggregate >= reqAgg;
-            if (!met)
+            double roundedAgg = Math.round(aggregate * 100.0) / 100.0;
+            boolean met = roundedAgg >= reqAgg;
+            if (!met) {
                 isEligible = false;
+                failureMessages.add(String.format("Your overall aggregate of %.2f is below the required %.2f.",
+                        roundedAgg, reqAgg));
+            }
 
             Map<String, Object> aggStat = new HashMap<>();
             aggStat.put("required", reqAgg);
-            aggStat.put("studentMark", Math.round(aggregate * 100.0) / 100.0);
+            aggStat.put("studentMark", roundedAgg);
             aggStat.put("met", met);
             details.put("Overall_Aggregate", aggStat);
         }
@@ -164,11 +187,15 @@ public class ApplicationService {
         response.put("eligibilityDetails", details);
 
         if (isEligible) {
+            response.put("message", "You meet all eligibility criteria.");
             Map<String, Object> merit = calculateMerit(studentMarks, course.getMerit_ranking());
             Map<String, Object> appData = new HashMap<>();
             appData.put("totalMeritScore", merit.get("totalScore"));
             appData.put("meritRankingBreakdown", merit.get("breakdown"));
             response.put("applicationData", appData);
+        } else {
+            response.put("message", "Eligibility criteria not met.");
+            response.put("reasons", failureMessages);
         }
 
         return response;
