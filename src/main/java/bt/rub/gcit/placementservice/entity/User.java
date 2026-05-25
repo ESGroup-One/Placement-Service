@@ -26,6 +26,8 @@ public class User {
     private boolean isVerified = false;
     private Role role;
 
+    private String profileImageUrl = "";
+
     // for admin
     private String collegeName;
     private String websiteUrl;
