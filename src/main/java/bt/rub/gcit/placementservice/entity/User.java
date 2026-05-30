@@ -1,5 +1,7 @@
 package bt.rub.gcit.placementservice.entity;
 
+import java.time.LocalDateTime;
+
 import lombok.Data;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -27,6 +29,8 @@ public class User {
     private Role role;
 
     private String profileImageUrl = "";
+    private boolean isPlaced = false;
+    private LocalDateTime placementDate;
 
     // for admin
     private String collegeName;
