@@ -11,7 +11,13 @@ import java.util.Optional;
 @Repository
 public interface ApplicationRepository extends MongoRepository<Application, String> {
     Optional<Application> findByStudentIdAndCourseId(String studentId, String courseId);
+
     List<Application> findByCourseIdOrderByTotalMeritScoreDesc(String courseId);
+    List<Application> findByStudentIdOrderBySubmittedAtDesc(String studentId);
+    List<Application> findByStudentIdAndIdNot(String studentId, String id);
+
     long countByStatus(String status);
+    long countByCurrentStatus(String currentStatus);
+
     List<Application> findBySubmittedAtGreaterThanEqual(LocalDateTime date);
 }

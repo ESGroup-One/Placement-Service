@@ -43,5 +43,6 @@ public class Course {
         private String contactInfo;
         private String fullName;
         private String email;
+        private String profileImageUrl;
     }
 }
